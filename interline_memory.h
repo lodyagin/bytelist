@@ -30,37 +30,32 @@ struct navigator
 };
 
 // allign the buffer paramters
-template<class SizeT, class AlignT = std::max_align_t>
+template<class SizeT, std::size_t Alignment = alignof(std::max_align_t)>
 struct aligned_memory_parameters
 {
+	static_assert(Alignment > 0);
+	
 	using size_type = SizeT;
 	
-	constexpr static std::size_t alignment() { return alignof(AlignT); }
+	constexpr static std::size_t alignment() { return Alignment; }
 
  	aligned_memory_parameters(void* ptr, size_type max_size) noexcept
-		: _ptr(ptr)
+		: _ptr(ptr), _size(max_size / alignment() * alignment())
 	{
 		if (max_size < 1)
 			return;
-		
-		std::size_t aligned_size = max_size; //((max_size - 1) / alignment() + 1) * alignment();
-		if (std::align(alignment(),
-									 max_size / alignment() * alignment(),
-									 _ptr,
-									 aligned_size) == nullptr
-				|| aligned_size == 0)
-			return;
 
-		aligned_size = aligned_size / alignment() * alignment();
-		
-		assert(aligned_size <= max_size);
-		_size = (size_type) aligned_size;
+		std::size_t space = max_size;
+		if (std::align(alignment(), _size, _ptr, space) == nullptr)
+			return;
+		assert(_size <= space);
+
 		assert(_size % alignment() == 0);
 		_valid = true;
 	}
 
 	void* _ptr;
-	size_type _size = 0;
+	size_type _size;
 	bool _valid = false;
 };
 
@@ -96,7 +91,7 @@ public:
 		: base((typename base::pointer) pars._ptr,
 					 (typename base::pointer) ((char*) pars._ptr + pars._size)
 					 ),
-		_end_idx(pars._size / alignment())
+		_end_idx(pars._size / aligned_line_size())
 	{
 		assert(pars._size % alignment() == 0);
 		if (!pars._valid)
@@ -110,7 +105,7 @@ public:
 
 	void swap(type&) = delete;
 
-	size_type n_lines() const { return _end_idx; }
+	size_type size() const { return _end_idx; }
 	
 	bool emplace_back() noexcept;
 
