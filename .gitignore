@@ -1,0 +1,9 @@
+*~*
+*#*
+*.cmake
+CMakeCache.txt
+Makefile
+CMakeFiles/
+tests/GMock-prefix/
+tests/gmock/
+tests/interline_memory
