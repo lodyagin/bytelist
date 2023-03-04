@@ -1,14 +1,19 @@
-CMAKE_MINIMUM_REQUIRED(VERSION 3.10.2)
+CMAKE_MINIMUM_REQUIRED(VERSION 3.13.4)
+
+cmake_policy(SET CMP0014 NEW)
+cmake_policy(SET CMP0057 NEW)
+cmake_policy(SET CMP0079 NEW)
 
 project(bytelist C CXX)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD_DEFAULT 20)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -Wno-multichar")
+# set(LIBCXX_GENERATED_INCLUDE_TARGET_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
-#include(cmake/functions.cmake)
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -Wno-multichar")
 
 if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
 	message(WARNING "\
@@ -37,5 +42,7 @@ ENDIF()
 include_directories(.)
 
 if (BUILD_TESTS)
-    add_subdirectory(tests)
+	set(LIBCXX_INCLUDE_TESTS 1)
+	add_subdirectory(tests.unit)
+	add_subdirectory(tests)
 endif()

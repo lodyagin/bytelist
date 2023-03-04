@@ -1,6 +1,5 @@
 #pragma once
 
-#include "types/sequence.h"
 #include <cassert>
 #include <cstddef>
 #include <iterator>
@@ -27,10 +26,12 @@ struct navigator
 	using size_type = SizeT;
 	using difference_type = std::make_signed_t<size_type>;
 	using iterator_category = std::random_access_iterator_tag;
+
+	constexpr static value_type* no_address() { return nullptr; }
 };
 
 // allign the buffer paramters
-template<class SizeT, std::size_t Alignment = alignof(std::max_align_t)>
+template<class SizeT, SizeT LineSize, std::size_t Alignment = alignof(std::max_align_t)>
 struct aligned_memory_parameters
 {
 	static_assert(Alignment > 0);
@@ -39,6 +40,17 @@ struct aligned_memory_parameters
 	
 	constexpr static std::size_t alignment() { return Alignment; }
 
+ 	constexpr static size_type unaligned_line_size() { return LineSize; }
+
+	static_assert(unaligned_line_size() > 0);
+	
+	constexpr static size_type aligned_line_size()
+	{
+		return ((unaligned_line_size() - 1) / alignment() + 1) * alignment();
+	}
+
+	static_assert(aligned_line_size() >= unaligned_line_size());
+	
  	aligned_memory_parameters(void* ptr, size_type max_size) noexcept
 		: _ptr(ptr), _size(max_size / alignment() * alignment())
 	{
@@ -59,33 +71,92 @@ struct aligned_memory_parameters
 	bool _valid = false;
 };
 
-template<class SizeT, SizeT LineSize>
-class type : public types::sequence::type<navigator<SizeT, LineSize>>
+template<class SizeT, class Cell>
+class sequence
+{
+	static_assert(sizeof(Cell) < (std::size_t) std::numeric_limits<SizeT>::max());
+	
+public:
+	using value_type = Cell;
+	using pointer = Cell*;
+	using const_pointer = const Cell*;
+	using iterator = pointer;
+	using const_iterator = const_pointer;
+	using reference = Cell&;
+	using const_reference = const Cell&;
+	using size_type = SizeT;
+
+	constexpr sequence(pointer start, pointer stop) noexcept
+		: _start_address(start), _stop_address(stop)
+	{}
+	
+	iterator begin() const noexcept
+	{
+		return _start_address;
+	}
+	
+	iterator end() const noexcept
+	{
+		return _stop_address;
+	}
+
+	const_iterator cbegin() const noexcept { return begin(); }
+
+	const_iterator cend() const noexcept { return end(); }
+
+	size_type size() const
+	{
+		return end() - begin();
+	}
+	
+	bool empty() const noexcept { return cbegin() == cend(); }
+
+protected:
+	pointer _start_address = nullptr;
+	pointer _stop_address = nullptr;
+};
+
+template<class SizeT, SizeT LineSize, std::size_t Alignment = alignof(std::max_align_t)>
+class type 
+	: protected sequence<
+	    SizeT,
+			char[aligned_memory_parameters<SizeT, LineSize, Alignment>::aligned_line_size()]
+	  >
 {
 public:
 	using size_type = SizeT;
 	
-	using constructor_pars = aligned_memory_parameters<size_type>;
+	using constructor_pars = aligned_memory_parameters<size_type, LineSize, Alignment>;
 	
-	constexpr static std::size_t alignment() { return constructor_pars::alignment(); }
+	constexpr static std::size_t alignment()
+	{
+		return constructor_pars::alignment();
+	}
 
- 	constexpr static size_type unaligned_line_size() { return LineSize; }
+ 	constexpr static size_type unaligned_line_size()
+	{
+		return constructor_pars::unaligned_line_size();
+	}
 
-	static_assert(unaligned_line_size() > 0);
-	
 	constexpr static size_type aligned_line_size()
 	{
-		return ((unaligned_line_size() - 1) / alignment() + 1) * alignment();
+		return constructor_pars::aligned_line_size();
 	}
 
 	static_assert(aligned_line_size() >= unaligned_line_size());
+
+	constexpr static size_type line_gap_size()
+	{
+		return aligned_line_size() - unaligned_line_size();
+	}
 	
-	using base = types::sequence::type<navigator<size_type, aligned_line_size()>>;
+	using base = sequence<size_type, char[aligned_line_size()]>;
 	static_assert(std::is_unsigned<size_type>::value);
+
+	using typename base::value_type;
+	
 	// maps free space to a line index
 	using map_type = std::multimap<size_type, size_type>;
-	using line_type = char[aligned_line_size()];
-	using value_type = line_type;
 	
 	type(const constructor_pars& pars)
 		: base((typename base::pointer) pars._ptr,
@@ -105,10 +176,18 @@ public:
 
 	void swap(type&) = delete;
 
-	size_type size() const { return _end_idx; }
+	size_type max_size() const noexcept { return _end_idx; }
+	
+	size_type n_lines_total() const noexcept { return _cur_idx; }
 	
 	bool emplace_back() noexcept;
 
+	bool is_pointer_inside(const void* p) const noexcept
+	{
+		return p >= &*this->begin() && p < &*this->end();
+	}
+
+	// creates a "formatted" line
 	void* allocate_line(size_type n_lines) noexcept
 	{
 		try
@@ -116,12 +195,21 @@ public:
 			if (n_lines == 0)
 				return nullptr;
 
+			void* p = &*(this->begin() + _cur_idx);
+			
 			if (!append_lines(n_lines))
 				return nullptr;
 
-			constexpr size_type free_bytes = aligned_line_size() - unaligned_line_size();
-			if (free_bytes > 0)
-				_map.emplace(free_bytes, _cur_idx - 1);
+			constexpr size_type free_bytes = line_gap_size();
+			if (free_bytes > 0) {
+				size_type i = _cur_idx; 
+				do {
+					--i;
+					_map.emplace(free_bytes, i);
+				} while (i != _cur_idx - n_lines);
+			}
+			assert(is_pointer_inside(p));
+			return p;
 		}
 		catch (const std::bad_alloc&)
 		{
@@ -129,7 +217,7 @@ public:
 		}
 	}
 	
-	// bytestream is allocated in unused space
+	// bytestream is allocated in unused space or by addition of "unformatted" lines
 	void* allocate_bytestream(size_type bytes) noexcept
 	{
 		char* res = nullptr;
@@ -137,7 +225,7 @@ public:
 		assert(aligned_line_size() > 0);
 
 		if (bytes == 0)
-			return ptr(); // NB returns the pointer to the beginning of the buffer (doesn't mater)
+			return this->begin(); // NB returns the pointer to the beginning of the buffer (doesn't mater)
 		
 		assert(bytes <= std::numeric_limits<size_type>::max()); // TODO
 
@@ -151,8 +239,8 @@ public:
 					size_type free_bytes = it->first;
 					assert(free_bytes < aligned_line_size());
 					const auto idx = it->second;
-					res = (char*) &ptr()[idx + 1] - free_bytes;
-					assert(res + bytes <= (char*) &ptr()[_end_idx]);
+					res = (char*) this->begin()[idx + 1] - free_bytes;
+					assert(res + bytes <= (char*) this->begin()[_end_idx]);
 					assert(free_bytes >= bytes);
 					free_bytes -= bytes;
 					_map.erase(it);
@@ -165,24 +253,26 @@ public:
 					if (!append_lines(1))
 						return nullptr; // the buffer is full
 
-					res = (char*) ptr()[_cur_idx - 1];
+					res = (char*) this->begin()[_cur_idx - 1];
 					_map.emplace(aligned_line_size() - bytes, _cur_idx - 1);
 				}
 			}
 			else {
 				// add new lines
 				const auto n_lines = (bytes - 1) / aligned_line_size() + 1;
-				const auto last_line_free = aligned_line_size() - bytes % aligned_line_size();
+				const auto last_line_free = (aligned_line_size() - bytes % aligned_line_size())
+					% aligned_line_size();
 				assert(bytes <= n_lines * aligned_line_size());
-				assert(last_line_free > 0);
 				assert(last_line_free < aligned_line_size());
 
 				if (!append_lines(n_lines))
 					return nullptr; // no space
 
-				res = (char*) &ptr()[_cur_idx - n_lines];
-				_map.emplace(last_line_free, _cur_idx - 1);
+				res = (char*) this->begin()[_cur_idx - n_lines];
+				if (last_line_free > 0)
+					_map.emplace(last_line_free, _cur_idx - 1);
 			}
+			assert(is_pointer_inside(res));
 			return (void*) res;
 		}
 		catch(const std::bad_alloc&) {
@@ -190,8 +280,28 @@ public:
 		}
 	}
 
-protected:
-	//const line_type* _ptr;
+	template<class Fun>
+	void holes_map_traversal(Fun&& observer) const
+	{
+		for (const auto& p : _map)
+			observer(p.first);
+	}
+
+	// shows the buffer structure
+	// slow, this function is for debug purposes only
+	template<class Fun>
+	void line_by_line_traversal(Fun&& observer) const
+	{
+		const auto n_lines = _cur_idx; // both formatted and unformatted
+		std::vector<size_type> v(n_lines, aligned_line_size());
+		for (const auto& p : _map) 
+			v.at(p.second) -= p.first;
+		
+		for (const auto& filled : v)
+			observer(filled);
+	}
+
+ protected:
 	const size_type _end_idx;
 	size_type _cur_idx = 0;
 
@@ -204,7 +314,7 @@ protected:
 		return true;
 	}
 	
-	line_type* ptr() const { return (line_type*) this->_start_address; }
+	//value_type* ptr() const { return (line_type*) this->_start_address; }
 	
 	map_type _map;
 };
@@ -237,7 +347,7 @@ protected:
 	// No-op
 	void do_deallocate(void*, std::size_t, std::size_t) override {}
 	
-	bool do_is_equal(const std::pmr::memory_resource& other) const override;
+	bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override;
 
 	buffer_type _buffer;
 };
