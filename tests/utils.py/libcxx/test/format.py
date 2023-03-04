@@ -246,8 +246,8 @@ class CxxStandardLibraryTest(lit.formats.TestFormat):
         # suffixes above too.
         elif filename.endswith('.pass.cpp') or filename.endswith('.pass.mm'):
             steps = [
-                "%dbg(COMPILED WITH) %{cxx} %s %{flags} %{compile_flags} %{link_flags} -o %t.exe"
-#                "%dbg(EXECUTED AS) %{exec} %t.exe"
+                "%dbg(COMPILED WITH) %{cxx} %s %{flags} %{compile_flags} %{link_flags} -o %t.exe",
+                "%dbg(EXECUTED AS) %{exec} %t.exe"
             ]
             return self._executeShTest(test, litConfig, steps)
         # This is like a .verify.cpp test when clang-verify is supported,

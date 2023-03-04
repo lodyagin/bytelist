@@ -29,6 +29,8 @@
 template <class ProviderT, int = 0>
 class TestResourceImp : public bytelist::memory::interline::memory_resource<uint16_t, 80> {
 public:
+	using base = bytelist::memory::interline::memory_resource<uint16_t, 80>;
+	
   static int resource_alive;
   static int resource_constructed;
   static int resource_destructed;
@@ -45,7 +47,9 @@ public:
 
   int value;
 
-  explicit TestResourceImp(int val = 0) : value(val) {
+	char buf[65535];
+	
+  explicit TestResourceImp(int val = 0) : base(buf, sizeof(buf)), value(val) {
     ++resource_alive;
     ++resource_constructed;
   }

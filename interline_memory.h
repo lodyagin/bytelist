@@ -343,7 +343,9 @@ public:
 	using buffer_type = buffer::type<SizeT, LineSize>;
 	using size_type = SizeT;
 	
-	memory_resource(/*buffer_type* buf*/);
+	memory_resource(void* ptr, size_type max_size)
+		: _buffer(buffer::aligned_memory_parameters<SizeT, LineSize>(ptr, max_size))
+	{}
 		
 	// Release all allocated memory
 	void release();
@@ -351,14 +353,19 @@ public:
 protected:
 	void* do_allocate(std::size_t bytes, std::size_t alignment) override
 	{
-		// TODO
-		return nullptr;
+		if (__builtin_expect(bytes > std::numeric_limits<size_type>::max(), 0))
+			return nullptr;
+		
+		return _buffer.allocate_bytestream((size_type) bytes, alignment);
 	}
 	
 	// No-op
 	void do_deallocate(void*, std::size_t, std::size_t) override {}
 	
-	bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override;
+	bool do_is_equal(const std::pmr::memory_resource& ) const noexcept override
+	{
+		return false;
+	}
 
 	buffer_type _buffer;
 };
