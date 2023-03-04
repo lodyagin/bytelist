@@ -29,17 +29,6 @@ namespace interline
 namespace buffer
 {
 
-/*template<class SizeT, SizeT LineSize>
-struct navigator
-{
-	using value_type = char[LineSize];
-	using size_type = SizeT;
-	using difference_type = std::make_signed_t<size_type>;
-	using iterator_category = std::random_access_iterator_tag;
-
-	constexpr static value_type* no_address() { return nullptr; }
-	};*/
-
 // allign the buffer paramters
 template<class SizeT, SizeT LineSize, std::size_t Alignment = alignof(std::max_align_t)>
 struct aligned_memory_parameters
@@ -186,6 +175,8 @@ public:
 
 	void swap(type&) = delete;
 
+	using base::begin;
+	
 	size_type max_size() const noexcept { return _end_idx; }
 	
 	size_type n_lines_total() const noexcept { return _cur_idx; }
@@ -238,8 +229,12 @@ public:
 
 		assert(aligned_line_size() > 0);
 
-		if (__builtin_expect(bytes == 0, 0))
-			return this->begin(); // NB returns the pointer to the beginning of the buffer (doesn't mater)
+		if (__builtin_expect(bytes == 0, 0)) {
+			res = this->begin(); // NB returns the pointer to the beginning of the buffer (doesn't mater)
+			std::size_t dummy = (size_type) -1; 
+			res = std::align(al, bytes, res, dummy); // keep it aligned
+			return (is_pointer_inside(res)) ? res : nullptr; // keep it inside this structure
+		}
 
 		const size_type aligned_bytes = (size_type) align_size(bytes, al);
 		if (__builtin_expect(aligned_bytes < bytes, 0))
@@ -271,7 +266,7 @@ public:
 					if (!append_lines(1))
 						return nullptr; // the buffer is full
 
-					res = (char*) this->begin()[_cur_idx - 1];
+					res = (char*) this->begin()[_cur_idx - 1]; // it is already aligned
 					_map.emplace(aligned_line_size() - bytes, _cur_idx - 1);
 				}
 			}
@@ -286,7 +281,7 @@ public:
 				if (!append_lines(n_lines))
 					return nullptr; // no space
 
-				res = (char*) this->begin()[_cur_idx - n_lines];
+				res = (char*) this->begin()[_cur_idx - n_lines]; // it is already aligned
 				if (last_line_free > 0)
 					_map.emplace(last_line_free, _cur_idx - 1);
 			}

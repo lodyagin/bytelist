@@ -157,7 +157,25 @@ TEST(buffer, stream_allocate0)
 		buffer::type<uint16_t, 80, 16> buf(pars);
 
 		EXPECT_NE(nullptr, buf.allocate_bytestream(0, 1));
+		EXPECT_NE(nullptr, buf.allocate_bytestream(0, 2));
 		EXPECT_EQ(65535 / 80, buf.max_size());
+	}
+	::free(ptr);
+}
+
+TEST(buffer, stream_allocate_weird_alignments)
+{
+	constexpr uint16_t size = 65535;
+	void* ptr = ::malloc(size);
+	{
+		buffer::aligned_memory_parameters<uint16_t, 80, 16> pars(ptr, size);
+		buffer::type<uint16_t, 80, 16> buf(pars);
+
+		EXPECT_EQ(nullptr, buf.allocate_bytestream(1, 0));
+		EXPECT_EQ(nullptr, buf.allocate_bytestream(1, 32));
+		EXPECT_EQ(nullptr, buf.allocate_bytestream(1, 17));
+		EXPECT_EQ(nullptr, buf.allocate_bytestream(0, 17));
+		EXPECT_EQ(nullptr, buf.allocate_bytestream(65535, 16));
 	}
 	::free(ptr);
 }
@@ -183,8 +201,8 @@ TEST(buffer, stream_allocate_inline)
 			1: 6
 			2: 6
 			3: 38  (6 + 32)
-			4: 64  (6 + 58)
-			5: 64  (6 + 57 + 1)
+			4: 64  (6 + 57 + 1)
+			5: 64  (6 + 58)
 		*/		
 		int cnt = 0;
 		buf.holes_map_traversal(
@@ -259,6 +277,106 @@ TEST(buffer, stream_allocate_inline)
 	::free(ptr);
 }
 
+TEST(buffer, stream_allocate_inline_align4)
+{
+	constexpr uint16_t size = 7 * 64 + 31;
+	void* ptr = ::malloc(size);
+	{
+		buffer::aligned_memory_parameters<uint16_t, 6, 64> pars(ptr, size);
+		buffer::type<uint16_t, 6, 64> buf(pars);
+
+		buf.allocate_line(6);
+		EXPECT_EQ(6, buf.n_lines_total());
+		
+		buf.allocate_bytestream(53, 4);
+		buf.allocate_bytestream(52, 4);
+		buf.allocate_bytestream(32, 4);
+		buf.allocate_bytestream(1, 4);
+
+		/*
+			0: 6
+			1: 6
+			2: 6
+			3: 40   (6 + 32 + alignment_of_address(==2))
+			4: 64  (6 + align(52,4) + align(1,4))
+			5: 64  (6 + align(53,4))
+		*/		
+
+		int cnt = 0;
+		buf.holes_map_traversal(
+			[&cnt](uint16_t hole_size)
+			{
+				cnt++;
+				switch (cnt) {
+				case 1:
+					EXPECT_EQ(24, hole_size);
+					break;
+				case 2:
+				case 3:
+				case 4:
+					EXPECT_EQ(58, hole_size);
+					break;
+				}
+			}
+		);
+		EXPECT_EQ(4, cnt);
+
+		buf.allocate_bytestream(27, 4);
+
+		cnt = 0;
+		buf.holes_map_traversal(
+			[&cnt](uint16_t hole_size)
+			{
+				cnt++;
+				switch (cnt) {
+				case 1:
+					EXPECT_EQ(24, hole_size);
+					break;
+				case 2:
+					EXPECT_EQ(28, hole_size);
+					break;
+				case 3:
+				case 4:
+					EXPECT_EQ(58, hole_size);
+					break;
+				}
+			}
+		);
+		EXPECT_EQ(4, cnt);
+		
+		buf.allocate_bytestream(56, 4); //58 -> 2 hole - 2 address alignment
+		buf.allocate_bytestream(32, 4); //58 -> 24 hole 
+		
+		EXPECT_EQ(6, buf.n_lines_total());
+		EXPECT_NE(nullptr, buf.allocate_bytestream(32, 4)); // + 32 hole
+
+		EXPECT_EQ(nullptr, buf.allocate_bytestream(33, 4));
+		EXPECT_EQ(7, buf.n_lines_total());
+
+		cnt = 0;
+		buf.holes_map_traversal(
+			[&cnt](uint16_t hole_size)
+			{
+				cnt++;
+				switch (cnt) {
+				case 1:
+				case 2:
+					EXPECT_EQ(24, hole_size);
+					break;
+				case 3:
+					EXPECT_EQ(28, hole_size);
+					break;
+				case 4:
+					EXPECT_EQ(32, hole_size);
+					break;
+				}
+			}
+		);
+		EXPECT_EQ(4, cnt);
+	}
+	::free(ptr);
+}
+
 TEST(buffer, stream_allocate_mixed_2lines)
 {
 	constexpr uint16_t size = 65535;
@@ -306,6 +424,50 @@ TEST(buffer, stream_allocate_mixed_2lines)
 	::free(ptr);
 }
 
+TEST(buffer, stream_allocate_mixed_2lines_align)
+{
+	constexpr uint16_t size = 65535;
+	void* ptr = ::malloc(size);
+	{
+		buffer::aligned_memory_parameters<uint16_t, 50, 64> pars(ptr, size);
+		buffer::type<uint16_t, 50, 64> buf(pars);
+
+		buf.allocate_line(2);
+
+		// 50 full | 14 free 
+		// 50 full | 14 free 
+		
+		EXPECT_NE(nullptr, buf.allocate_bytestream(10, 4));
+
+		// 50 full | 14 free 
+		// 64 full | 0 free 
+		
+		EXPECT_NE(nullptr, buf.allocate_bytestream(15, 4));
+		
+		// 50 full | 14 free 
+		// 64 full | 0 free 
+		// 15 full | 49 free
+
+		int cnt = 0;
+		buf.holes_map_traversal(
+			[&cnt](uint16_t hole_size)
+			{
+				cnt++;
+				switch (cnt) {
+				case 1:
+					EXPECT_EQ(14, hole_size);
+					break;
+				case 2:
+					EXPECT_EQ(49, hole_size);
+					break;
+				}
+			}
+		);
+		EXPECT_EQ(2, cnt);
+	}
+	::free(ptr);
+}
+
 TEST(buffer, stream_allocate_mixed)
 {
 	constexpr uint16_t size = 65535;
@@ -335,7 +497,7 @@ TEST(buffer, stream_allocate_mixed)
 
 		EXPECT_EQ(6, buf.n_lines_total());
 
-		EXPECT_EQ((char*)ptr + 6 * 64, buf.allocate_line(1));
+		EXPECT_EQ((char*)buf.begin() + 6 * 64, buf.allocate_line(1));
 
 		EXPECT_EQ(7, buf.n_lines_total());
 		
@@ -398,7 +560,7 @@ TEST(buffer, stream_allocate_interline)
 
 		EXPECT_EQ(4, buf.n_lines_total());
 
-		EXPECT_EQ((char*)ptr + 4 * 64, buf.allocate_line(1));
+		EXPECT_EQ((char*)buf.begin() + 4 * 64, buf.allocate_line(1));
 
 		int cnt = 0;
 		buf.holes_map_traversal(
@@ -417,4 +579,20 @@ TEST(buffer, stream_allocate_interline)
 	}
 	::free(ptr);
 }
+
+TEST(buffer, stream_allocate_max)
+{
+	constexpr uint16_t size = 65535;
+	void* ptr = ::malloc(size);
+	{
+		buffer::aligned_memory_parameters<uint16_t, 62, 4> pars(ptr, size);
+		buffer::type<uint16_t, 62, 4> buf(pars);
+
+		EXPECT_EQ(nullptr, buf.allocate_bytestream(65535, 1));
+		EXPECT_NE(nullptr, buf.allocate_bytestream(65536 - 64, 1));
+
+	}
+	::free(ptr);
+}
+
 
