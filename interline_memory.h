@@ -13,13 +13,23 @@ namespace bytelist
 {
 namespace memory
 {
+
+template<class SizeT>
+inline constexpr std::size_t align_size(SizeT size, std::size_t alignment)
+{
+	if (__builtin_expect(size == 0, 0))
+		return 0;
+	
+	return (((std::size_t) size - 1) / alignment + 1) * alignment;
+}
+
 namespace interline
 {
 
 namespace buffer
 {
 
-template<class SizeT, SizeT LineSize>
+/*template<class SizeT, SizeT LineSize>
 struct navigator
 {
 	using value_type = char[LineSize];
@@ -28,7 +38,7 @@ struct navigator
 	using iterator_category = std::random_access_iterator_tag;
 
 	constexpr static value_type* no_address() { return nullptr; }
-};
+	};*/
 
 // allign the buffer paramters
 template<class SizeT, SizeT LineSize, std::size_t Alignment = alignof(std::max_align_t)>
@@ -46,7 +56,7 @@ struct aligned_memory_parameters
 	
 	constexpr static size_type aligned_line_size()
 	{
-		return ((unaligned_line_size() - 1) / alignment() + 1) * alignment();
+		return align_size(unaligned_line_size(), alignment());
 	}
 
 	static_assert(aligned_line_size() >= unaligned_line_size());
@@ -192,12 +202,12 @@ public:
 	{
 		try
 		{
-			if (n_lines == 0)
+			if (__builtin_expect(n_lines == 0, 0))
 				return nullptr;
 
 			void* p = &*(this->begin() + _cur_idx);
 			
-			if (!append_lines(n_lines))
+			if (__builtin_expect(!append_lines(n_lines), 0))
 				return nullptr;
 
 			constexpr size_type free_bytes = line_gap_size();
@@ -218,31 +228,39 @@ public:
 	}
 	
 	// bytestream is allocated in unused space or by addition of "unformatted" lines
-	void* allocate_bytestream(size_type bytes) noexcept
+	void* allocate_bytestream(size_type bytes, std::size_t al) noexcept
 	{
-		char* res = nullptr;
+		static_assert(aligned_line_size() % alignment() == 0);
+		if (__builtin_expect(!(al > 0 && alignment() % al == 0), 0))
+			return nullptr; // unable to align
+		
+		void* res = nullptr;
 
 		assert(aligned_line_size() > 0);
 
-		if (bytes == 0)
+		if (__builtin_expect(bytes == 0, 0))
 			return this->begin(); // NB returns the pointer to the beginning of the buffer (doesn't mater)
-		
-		assert(bytes <= std::numeric_limits<size_type>::max()); // TODO
+
+		const size_type aligned_bytes = (size_type) align_size(bytes, al);
+		if (__builtin_expect(aligned_bytes < bytes, 0))
+			return nullptr;
 
 		try {
 			if (bytes < aligned_line_size()) {
-				auto it = _map.lower_bound(bytes);
+				auto it = _map.lower_bound(aligned_bytes);
 				
 				if (it != _map.end()) // found a line with free space
 				{	
 					// how much space there is in the line
-					size_type free_bytes = it->first;
+					std::size_t free_bytes = it->first;
 					assert(free_bytes < aligned_line_size());
 					const auto idx = it->second;
 					res = (char*) this->begin()[idx + 1] - free_bytes;
-					assert(res + bytes <= (char*) this->begin()[_end_idx]);
+					void* res_p = std::align(al, bytes, res, free_bytes);
+					assert(res_p);
+					assert((char*)res + bytes <= (char*) this->begin()[_end_idx]);
 					assert(free_bytes >= bytes);
-					free_bytes -= bytes;
+					free_bytes -= aligned_bytes;
 					_map.erase(it);
 					if (free_bytes > 0)
 						_map.emplace(free_bytes, idx);
@@ -307,14 +325,12 @@ public:
 
 	bool append_lines(size_type n_lines) noexcept
 	{
-		if (n_lines > _end_idx || _end_idx - n_lines < _cur_idx)
+		if (__builtin_expect(n_lines > _end_idx || _end_idx - n_lines < _cur_idx, 0))
 			return false;
 
 		_cur_idx += n_lines;
 		return true;
 	}
-	
-	//value_type* ptr() const { return (line_type*) this->_start_address; }
 	
 	map_type _map;
 };

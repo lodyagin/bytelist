@@ -156,7 +156,7 @@ TEST(buffer, stream_allocate0)
 		buffer::aligned_memory_parameters<uint16_t, 80, 16> pars(ptr, size);
 		buffer::type<uint16_t, 80, 16> buf(pars);
 
-		EXPECT_NE(nullptr, buf.allocate_bytestream(0));
+		EXPECT_NE(nullptr, buf.allocate_bytestream(0, 1));
 		EXPECT_EQ(65535 / 80, buf.max_size());
 	}
 	::free(ptr);
@@ -173,10 +173,10 @@ TEST(buffer, stream_allocate_inline)
 		buf.allocate_line(6);
 		EXPECT_EQ(6, buf.n_lines_total());
 		
-		buf.allocate_bytestream(58);
-		buf.allocate_bytestream(57);
-		buf.allocate_bytestream(32);
-		buf.allocate_bytestream(1);
+		buf.allocate_bytestream(58, 1);
+		buf.allocate_bytestream(57, 1);
+		buf.allocate_bytestream(32, 1);
+		buf.allocate_bytestream(1, 1);
 
 		/*
 			0: 6
@@ -205,7 +205,7 @@ TEST(buffer, stream_allocate_inline)
 		);
 		EXPECT_EQ(4, cnt);
 
-		buf.allocate_bytestream(27);
+		buf.allocate_bytestream(27, 1);
 		cnt = 0;
 		buf.holes_map_traversal(
 			[&cnt](uint16_t hole_size)
@@ -227,12 +227,12 @@ TEST(buffer, stream_allocate_inline)
 		);
 		EXPECT_EQ(4, cnt);
 		
-		buf.allocate_bytestream(58); //removes 58 hole
-		buf.allocate_bytestream(32); //58 -> 26 hole 
+		buf.allocate_bytestream(58, 1); //removes 58 hole
+		buf.allocate_bytestream(32, 1); //58 -> 26 hole 
 		EXPECT_EQ(6, buf.n_lines_total());
-		EXPECT_NE(nullptr, buf.allocate_bytestream(32)); // + 32 hole
+		EXPECT_NE(nullptr, buf.allocate_bytestream(32, 1)); // + 32 hole
 
-		EXPECT_EQ(nullptr, buf.allocate_bytestream(33));
+		EXPECT_EQ(nullptr, buf.allocate_bytestream(33, 1));
 		EXPECT_EQ(7, buf.n_lines_total());
 
 		cnt = 0;
@@ -272,12 +272,12 @@ TEST(buffer, stream_allocate_mixed_2lines)
 		// 50 full | 14 free 
 		// 50 full | 14 free 
 		
-		EXPECT_NE(nullptr, buf.allocate_bytestream(10));
+		EXPECT_NE(nullptr, buf.allocate_bytestream(10, 1));
 
 		// 50 full | 14 free 
 		// 60 full | 4 free 
 		
-		EXPECT_NE(nullptr, buf.allocate_bytestream(15));
+		EXPECT_NE(nullptr, buf.allocate_bytestream(15, 1));
 		
 		// 50 full | 14 free 
 		// 60 full | 4 free 
@@ -319,12 +319,12 @@ TEST(buffer, stream_allocate_mixed)
 		// 50 full | 14 free 
 		// 50 full | 14 free 
 		
-		EXPECT_NE(nullptr, buf.allocate_bytestream(10));
+		EXPECT_NE(nullptr, buf.allocate_bytestream(10, 1));
 
 		// 50 full | 14 free 
 		// 60 full | 4 free 
 		
-		EXPECT_NE(nullptr, buf.allocate_bytestream(3 * 64 + 15));
+		EXPECT_NE(nullptr, buf.allocate_bytestream(3 * 64 + 15, 1));
 		
 		// 50 full | 14 free 
 		// 60 full
@@ -384,12 +384,12 @@ TEST(buffer, stream_allocate_interline)
 		// 50 full | 14 free 
 		// 50 full | 14 free 
 		
-		EXPECT_NE(nullptr, buf.allocate_bytestream(14));
+		EXPECT_NE(nullptr, buf.allocate_bytestream(14, 1));
 
 		// 50 full | 14 free 
 		// 64 full 
 		
-		EXPECT_NE(nullptr, buf.allocate_bytestream(128));
+		EXPECT_NE(nullptr, buf.allocate_bytestream(128, 1));
 		
 		// 50 full | 14 free 
 		// 64 full
