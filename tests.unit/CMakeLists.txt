@@ -27,6 +27,7 @@ function(addtest test_name test_src)
 endfunction(addtest)
 
 addtest(interline_memory interline_memory.cpp)
+addtest(strings_solid solid.cpp)
 
 # create targets for all tests and for every manual one
 #add_executable(run_test ${TEST_SRC})

@@ -85,9 +85,15 @@ public:
 	using const_reference = const Cell&;
 	using size_type = SizeT;
 
-	constexpr sequence(pointer start, pointer stop) noexcept
+	sequence(pointer start, pointer stop)
 		: _start_address(start), _stop_address(stop)
-	{}
+	{
+		if (size_in_bytes() > std::numeric_limits<size_type>::max() - 1)
+		{ // max() is used as a "no value" for index
+			assert(false);
+			throw std::bad_alloc();
+		}
+	}
 	
 	iterator begin() const noexcept
 	{
@@ -108,7 +114,22 @@ public:
 		return end() - begin();
 	}
 	
+	constexpr std::size_t size_in_bytes() const noexcept
+	{
+		return (char*) _stop_address - (char*) _start_address;
+	}
+	
 	bool empty() const noexcept { return cbegin() == cend(); }
+
+	// pointer -> offset
+	size_type pointer_offset(const void* ptr) const noexcept
+	{
+		if ((char*) ptr >= (char*) _start_address && (char*) ptr < (char*) _stop_address)
+			return (size_type) ((char*) ptr - (char*) _start_address);
+		else
+			return (size_type) -1;
+			
+	}
 
 protected:
 	pointer _start_address = nullptr;
@@ -153,6 +174,8 @@ public:
 	static_assert(std::is_unsigned<size_type>::value);
 
 	using typename base::value_type;
+
+	using base::pointer_offset;
 	
 	// maps free space to a line index
 	using map_type = std::multimap<size_type, size_type>;
@@ -334,21 +357,30 @@ public:
 
 class memory_resource_base : public std::pmr::memory_resource
 {
+public:
+	virtual std::size_t pointer_offset(const void* ptr) const noexcept = 0;
 };
 
-template<class SizeT, SizeT LineSize>
+template<class SizeT, SizeT LineSize, std::size_t Alignment = alignof(std::max_align_t)>
 class memory_resource : public memory_resource_base
 {
 public:
-	using buffer_type = buffer::type<SizeT, LineSize>;
+	using buffer_type = buffer::type<SizeT, LineSize, Alignment>;
 	using size_type = SizeT;
 	
 	memory_resource(void* ptr, size_type max_size)
-		: _buffer(buffer::aligned_memory_parameters<SizeT, LineSize>(ptr, max_size))
+		: _buffer(buffer::aligned_memory_parameters<SizeT, LineSize, Alignment>(ptr, max_size))
 	{}
 		
 	// Release all allocated memory
 	void release();
+
+	std::size_t pointer_offset(const void* ptr) const noexcept override
+	{
+		return _buffer.pointer_offset(ptr);
+	}
+
+	const char* mem_start() const { return (const char*) _buffer.begin(); }
 
 protected:
 	void* do_allocate(std::size_t bytes, std::size_t alignment) override

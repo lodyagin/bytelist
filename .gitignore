@@ -15,4 +15,5 @@ tests.unit/GMock-prefix/
 tests.unit/gmock/
 tests.unit/googletest/
 tests.unit/interline_memory
+tests.unit/strings_solid
 tests.unit/*.cmake
